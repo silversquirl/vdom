@@ -36,9 +36,6 @@ func (node jsDOM) CreateText(text string) vdom.DOMNode {
 	return CreateText(text)
 }
 
-func (node jsDOM) NChild() int {
-	return node.Get("children").Get("length").Int()
-}
 func (node jsDOM) child(i int) js.Value {
 	return node.Get("children").Call("item", i)
 }

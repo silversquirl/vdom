@@ -1,30 +1,10 @@
 package vdom
 
 import (
-	"html"
-	"strings"
+	"fmt"
+
+	"golang.org/x/net/html"
 )
-
-var voidElems = map[string]bool{
-	"area":   true,
-	"base":   true,
-	"br":     true,
-	"col":    true,
-	"embed":  true,
-	"hr":     true,
-	"img":    true,
-	"input":  true,
-	"link":   true,
-	"meta":   true,
-	"param":  true,
-	"source": true,
-	"track":  true,
-	"wbr":    true,
-}
-
-func IsVoid(elemName string) bool {
-	return voidElems[elemName]
-}
 
 type DOMNode interface {
 	// Replace the node with a new node.
@@ -34,21 +14,20 @@ type DOMNode interface {
 	// Create a new Text node.
 	CreateText(text string) DOMNode
 
-	// Return the number of children of an Element node.
+	// Return the first child of an Element node.
 	// May panic if the node is not an Element node.
-	NChild() int
-	// Return the ith child of an Element node.
-	// May panic if the node is not an Element node.
-	Child(i int) DOMNode
+	FirstChild() DOMNode
+	// Return the next sibling of a node.
+	NextSibling() DOMNode
 	// Add a child to the end of an Element node.
 	// May panic if the node is not an Element node.
 	AppendChild(child DOMNode)
 	// Insert a child into an Element node at the given position.
 	// May panic if the node is not an Element node.
-	InsertChild(child DOMNode, i int)
+	InsertBefore(newChild, oldChild DOMNode)
 	// Remove the given child from an Element node.
 	// May panic if the node is not an Element node.
-	RemoveChild(i int)
+	RemoveChild(child DOMNode)
 
 	// Set an attribute on an Element node.
 	// May panic if the node is not an Element node.
@@ -61,144 +40,133 @@ type DOMNode interface {
 	SetText(text string)
 }
 
-type Node interface {
-	Clone() Node
-	HTML() string
-	Construct(dom DOMNode) DOMNode
-	Patch(dom DOMNode, old Node)
+func Clone(node *html.Node) *html.Node {
+	var attr []html.Attribute
+	if node.Attr != nil {
+		attr = make([]html.Attribute, len(node.Attr))
+		copy(attr, node.Attr)
+	}
+
+	firstChild, lastChild := clone(node.FirstChild)
+	return &html.Node{
+		Parent:      node.Parent,
+		FirstChild:  firstChild,
+		LastChild:   lastChild,
+		PrevSibling: node.PrevSibling,
+		NextSibling: node.NextSibling,
+
+		Type:      node.Type,
+		DataAtom:  node.DataAtom,
+		Data:      node.Data,
+		Namespace: node.Namespace,
+		Attr:      attr,
+	}
+}
+func clone(node *html.Node) (me, lastSibling *html.Node) {
+	if node == nil {
+		return nil, nil
+	}
+
+	var attr []html.Attribute
+	if node.Attr != nil {
+		attr = make([]html.Attribute, len(node.Attr))
+		copy(attr, node.Attr)
+	}
+
+	nextSibling, lastSibling := clone(node.NextSibling)
+	firstChild, lastChild := clone(node.FirstChild)
+	me = &html.Node{
+		Parent:      node.Parent,
+		FirstChild:  firstChild,
+		LastChild:   lastChild,
+		PrevSibling: node.PrevSibling,
+		NextSibling: nextSibling,
+
+		Type:      node.Type,
+		DataAtom:  node.DataAtom,
+		Data:      node.Data,
+		Namespace: node.Namespace,
+		Attr:      attr,
+	}
+	return
 }
 
-type Text struct{ Text string }
+func Construct(node *html.Node, dom DOMNode) DOMNode {
+	switch node.Type {
+	case html.TextNode:
+		return dom.CreateText(node.Data)
 
-func (t Text) Clone() Node {
-	return &t
-}
-
-func (t *Text) HTML() string {
-	return t.Text
-}
-
-func (t *Text) Construct(dom DOMNode) DOMNode {
-	return dom.CreateText(t.Text)
-}
-func (t *Text) Patch(dom DOMNode, old Node) {
-	if t0, ok := old.(*Text); ok {
-		if t != t0 {
-			dom.SetText(t.Text)
+	case html.ElementNode:
+		domNode := dom.CreateElement(node.Data)
+		for _, attr := range node.Attr {
+			domNode.SetAttr(attr.Key, attr.Val)
 		}
-	} else {
-		dom.Replace(t.Construct(dom))
-	}
-}
-
-type Element struct {
-	Name     string
-	Attrs    map[string]string
-	Children []Node
-}
-
-func (e *Element) Clone() Node {
-	e2 := &Element{
-		e.Name, make(map[string]string),
-		make([]Node, len(e.Children)),
-	}
-	for k, v := range e.Attrs {
-		e2.Attrs[k] = v
-	}
-	for i, child := range e.Children {
-		e2.Children[i] = child.Clone()
-	}
-	return e2
-}
-
-func (e *Element) HTML() string {
-	b := strings.Builder{}
-
-	// Write opening tag
-	b.WriteByte('<')
-	// TODO: validate tag name
-	b.WriteString(e.Name)
-	var attrs bool
-	for k, v := range e.Attrs {
-		attrs = true
-		b.WriteByte(' ')
-		// TODO: validate attribute name
-		b.WriteString(html.EscapeString(k))
-		b.WriteString(`="`)
-		b.WriteString(html.EscapeString(v))
-		b.WriteByte('"')
-	}
-	if IsVoid(e.Name) {
-		if attrs {
-			b.WriteByte(' ')
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			domNode.AppendChild(Construct(child, dom))
 		}
-		b.WriteByte('/')
-	}
-	b.WriteByte('>')
+		return domNode
 
-	if !IsVoid(e.Name) {
-		// Write contents
-		for _, child := range e.Children {
-			b.WriteString(child.HTML())
+	default:
+		panic(fmt.Sprint("Cannot construct node of type ", node.Type))
+	}
+}
+
+func Patch(node, oldNode *html.Node, dom DOMNode) {
+	if oldNode == nil || node.Type != oldNode.Type {
+		dom.Replace(Construct(node, dom))
+		return
+	}
+
+	switch node.Type {
+	case html.TextNode:
+		if node.Data != oldNode.Data {
+			dom.SetText(node.Data)
 		}
 
-		// Write closing tag
-		b.WriteString("</")
-		b.WriteString(e.Name)
-		b.WriteByte('>')
-	}
+	case html.ElementNode:
+		if node.Data != oldNode.Data {
+			dom.Replace(Construct(node, dom))
+			return
+		}
 
-	return b.String()
-}
-
-func (e *Element) Construct(dom DOMNode) DOMNode {
-	node := dom.CreateElement(e.Name)
-	for k, v := range e.Attrs {
-		node.SetAttr(k, v)
-	}
-	for _, child := range e.Children {
-		node.AppendChild(child.Construct(dom))
-	}
-	return node
-}
-func (e *Element) Patch(dom DOMNode, old Node) {
-	if e0, ok := old.(*Element); ok && e.Name == e0.Name {
 		// Update/add attributes
-		for k, v := range e.Attrs {
-			if v0, ok := e0.Attrs[k]; !ok || v != v0 {
-				dom.SetAttr(k, v)
-			}
+		oldAttr := make(map[string]string)
+		for _, attr := range oldNode.Attr {
+			oldAttr[attr.Key] = attr.Val
 		}
-
-		// Remove attributes
-		for k := range e0.Attrs {
-			if _, ok := e.Attrs[k]; !ok {
-				dom.DelAttr(k)
+		for _, attr := range node.Attr {
+			if oldVal, ok := oldAttr[attr.Key]; !ok || attr.Val != oldVal {
+				dom.SetAttr(attr.Key, attr.Val)
 			}
+			delete(oldAttr, attr.Key)
+		}
+		// Remove old attributes
+		for k := range oldAttr {
+			dom.DelAttr(k)
 		}
 
 		// Update children
 		// TODO: improve this algorithm to make use of InsertChild
-		n := dom.NChild()
-		commonLen := n
-		if len(e.Children) < commonLen {
-			commonLen = len(e.Children)
-		}
-		if len(e0.Children) < commonLen {
-			commonLen = len(e0.Children)
-		}
-		for i := 0; i < commonLen; i++ {
-			e.Children[i].Patch(dom.Child(i), e0.Children[i])
-		}
-		// Add new children
-		for i := n; i < len(e.Children); i++ {
-			dom.AppendChild(e.Children[i].Construct(dom))
+		child := node.FirstChild
+		oldChild := oldNode.FirstChild
+		domChild := dom.FirstChild()
+		for child != nil && oldChild != nil && domChild != nil {
+			Patch(child, oldChild, domChild)
+
+			child = child.NextSibling
+			oldChild = oldChild.NextSibling
+			domChild = domChild.NextSibling()
 		}
 		// Remove old children
-		for i := len(e.Children); i < n; i++ {
-			dom.RemoveChild(i)
+		for oldChild != nil && domChild != nil {
+			dom.RemoveChild(domChild)
+			oldChild = oldChild.NextSibling
+			domChild = domChild.NextSibling()
 		}
-	} else {
-		dom.Replace(e.Construct(dom))
+		// Add new children
+		for child != nil {
+			dom.AppendChild(Construct(child, dom))
+			child = child.NextSibling
+		}
 	}
 }

@@ -6,52 +6,12 @@ import (
 	"testing"
 
 	"github.com/vktec/vdom"
-	"github.com/vktec/vdom/testdom"
+	"github.com/vktec/vdom/htmldom"
+	"golang.org/x/net/html"
+	"golang.org/x/net/html/atom"
 )
 
-func testTree() vdom.Node {
-	return &vdom.Element{
-		Name:  "body",
-		Attrs: map[string]string{"charset": "utf-8"},
-		Children: []vdom.Node{
-			&vdom.Element{Name: "h1", Children: []vdom.Node{&vdom.Text{"Hello, world!"}}},
-			&vdom.Element{
-				Name: "p",
-				Children: []vdom.Node{
-					&vdom.Text{"foo"},
-					&vdom.Element{Name: "br"},
-					&vdom.Text{"bar"},
-					&vdom.Element{Name: "br"},
-					&vdom.Text{"baz"},
-					&vdom.Element{Name: "br"},
-					&vdom.Text{"quux"},
-				},
-			},
-			&vdom.Element{
-				Name:     "p",
-				Attrs:    map[string]string{"data-foo": `"c<d'&;`},
-				Children: []vdom.Node{&vdom.Text{"frob"}},
-			},
-		},
-	}
-}
-
-func TestClone(t *testing.T) {
-	tree := testTree()
-	clone := tree.Clone()
-	// Change some text
-	tree.(*vdom.Element). // body
-				Children[0].(*vdom.Element). // h1
-				Children[0].(*vdom.Text).    // text
-				Text = "Hi everyone!"
-	if reflect.DeepEqual(tree, clone) {
-		t.Error("tree and clone are equal")
-	}
-}
-
-func TestHTML(t *testing.T) {
-	r := strings.NewReplacer("\t", "", "\n", "")
-	expect := r.Replace(`
+var testFragment = strings.NewReplacer("\t", "", "\n", "").Replace(`
 	<body charset="utf-8">
 		<h1>Hello, world!</h1>
 		<p>
@@ -64,76 +24,118 @@ func TestHTML(t *testing.T) {
 			frob
 		</p>
 	</body>
-	`)
+`)
 
-	html := testTree().HTML()
-	if html != expect {
-		t.Errorf("Generated HTML does not match:\nexpected: %s\ngot:      %s", expect, html)
+func testTree() *html.Node {
+	nodes, err := html.ParseFragment(strings.NewReader(testFragment), nil)
+	if err != nil {
+		panic(err)
+	}
+	// html -> body
+	return nodes[0].LastChild
+}
+
+func checkNodes(t *testing.T, thing string, expected, got *html.Node) {
+	if nodesEqual(expected, got) {
+		return
+	}
+
+	b := strings.Builder{}
+	html.Render(&b, expected)
+	estr := b.String()
+	b.Reset()
+
+	html.Render(&b, got)
+	gstr := b.String()
+
+	t.Log(got, expected)
+	t.Errorf("%s does not match:\nexpected: %s\ngot:      %s", thing, estr, gstr)
+}
+func nodesEqual(a, b *html.Node) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+
+	if a.Type != b.Type || a.DataAtom != b.DataAtom || a.Data != b.Data || a.Namespace != b.Namespace {
+		return false
+	}
+	if len(a.Attr) != len(b.Attr) {
+		return false
+	}
+	for i := range a.Attr {
+		if a.Attr[i] != b.Attr[i] {
+			return false
+		}
+	}
+	return nodesEqual(a.NextSibling, b.NextSibling) && nodesEqual(a.FirstChild, b.FirstChild)
+}
+
+func TestClone(t *testing.T) {
+	tree := testTree()
+	clone := vdom.Clone(tree)
+	// Change some text
+	tree.FirstChild.FirstChild.Data = "Hi everyone!"
+	if reflect.DeepEqual(tree, clone) {
+		t.Error("tree and clone are equal")
 	}
 }
 
 func TestConstruct(t *testing.T) {
-	dom := testdom.NewTestDOM()
+	node := &html.Node{}
+	dom := htmldom.New(node)
 	expect := testTree()
-	node := *expect.Construct(dom).(*testdom.TestDOM).Node
-	if !reflect.DeepEqual(node, expect) {
-		t.Errorf("Generated node does not match:\nexpected: %s\ngot:      %s", expect.HTML(), node.HTML())
-	}
+	dom.AppendChild(vdom.Construct(expect, dom))
+	checkNodes(t, "Generated node", expect, node.FirstChild)
 }
 
 func TestPatch(t *testing.T) {
-	dom := testdom.NewTestDOM()
+	node := &html.Node{}
+	dom := htmldom.New(node)
 	tree := testTree()
-	var prev vdom.Node
+	var prev *html.Node
 
-	body := tree.(*vdom.Element)
-	h1 := body.Children[0].(*vdom.Element)
-	p_0 := body.Children[1].(*vdom.Element)
-	p_1 := body.Children[2].(*vdom.Element)
+	body := tree
+	h1 := body.FirstChild
+	p_0 := h1.NextSibling
+	p_1 := p_0.NextSibling
 
-	tree.Patch(dom, prev)
-	prev = tree.Clone()
-	if !reflect.DeepEqual(*dom.Node, tree) {
-		t.Errorf("Patched node does not match:\nexpected: %s\ngot:      %s", tree.HTML(), (*dom.Node).HTML())
-	}
+	vdom.Patch(tree, prev, dom)
+	prev = vdom.Clone(tree)
+	checkNodes(t, "[init] Patched node", tree, node)
 
 	// Change some text
-	h1.Children[0].(*vdom.Text).Text = "Hi everyone!"
+	h1.FirstChild.Data = "Hi everyone!"
 
-	tree.Patch(dom, prev)
-	prev = tree.Clone()
-	if !reflect.DeepEqual(*dom.Node, tree) {
-		t.Errorf("Patched node does not match:\nexpected: %s\ngot:      %s", tree.HTML(), (*dom.Node).HTML())
-	}
+	vdom.Patch(tree, prev, dom)
+	prev = vdom.Clone(tree)
+	checkNodes(t, "[text] Patched node", tree, node)
 
 	// Change some attributes
-	h1.Attrs = map[string]string{"class": "title"}
-	body.Attrs["charset"] = "ascii"
-	delete(p_1.Attrs, "data-foo")
+	h1.Attr = append(h1.Attr, html.Attribute{Key: "class", Val: "title"})
+	body.Attr[0].Val = "ascii"
+	p_1.Attr = p_1.Attr[:0]
 
-	tree.Patch(dom, prev)
-	prev = tree.Clone()
-	if !reflect.DeepEqual(*dom.Node, tree) {
-		t.Errorf("Patched node does not match:\nexpected: %s\ngot:      %s", tree.HTML(), (*dom.Node).HTML())
-	}
+	vdom.Patch(tree, prev, dom)
+	prev = vdom.Clone(tree)
+	checkNodes(t, "[attr] Patched node", tree, node)
 
 	// Move some children around
-	text := p_0.Children[2]
-	p_0.Children = append(p_0.Children[:2], p_0.Children[3:]...)
-	p_1.Children = append(p_1.Children, text)
+	text := p_0.FirstChild.NextSibling.NextSibling
+	p_0.RemoveChild(text)
+	p_1.AppendChild(text)
 
-	tree.Patch(dom, prev)
-	prev = tree.Clone()
-	if !reflect.DeepEqual(*dom.Node, tree) {
-		t.Errorf("Patched node does not match:\nexpected: %s\ngot:      %s", tree.HTML(), (*dom.Node).HTML())
-	}
+	vdom.Patch(tree, prev, dom)
+	prev = vdom.Clone(tree)
+	checkNodes(t, "[child] Patched node", tree, node)
 
 	// Change an element's name
-	p_0.Name = "div"
+	p_0.DataAtom = atom.Div
+	p_0.Data = "div"
 
-	tree.Patch(dom, prev)
-	prev = tree.Clone()
-	if !reflect.DeepEqual(*dom.Node, tree) {
-		t.Errorf("Patched node does not match:\nexpected: %s\ngot:      %s", tree.HTML(), (*dom.Node).HTML())
-	}
+	vdom.Patch(tree, prev, dom)
+	prev = vdom.Clone(tree)
+	checkNodes(t, "[name] Patched node", tree, node)
 }
