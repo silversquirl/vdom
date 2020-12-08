@@ -91,6 +91,14 @@ func TestConstruct(t *testing.T) {
 	checkNodes(t, "Generated node", expect, node.FirstChild)
 }
 
+func TestInvalidConstruct(t *testing.T) {
+	defer func() {
+		recover()
+	}()
+	vdom.Construct(&html.Node{Type: html.DocumentNode}, htmldom.New(nil))
+	t.Error("Construct did not panic")
+}
+
 func TestPatch(t *testing.T) {
 	node := &html.Node{}
 	dom := htmldom.New(node)
