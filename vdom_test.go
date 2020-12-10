@@ -48,7 +48,6 @@ func checkNodes(t *testing.T, thing string, expected, got *html.Node) {
 	html.Render(&b, got)
 	gstr := b.String()
 
-	t.Log(got, expected)
 	t.Errorf("%s does not match:\nexpected: %s\ngot:      %s", thing, estr, gstr)
 }
 func nodesEqual(a, b *html.Node) bool {
