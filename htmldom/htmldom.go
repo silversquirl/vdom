@@ -6,27 +6,25 @@ import (
 	"golang.org/x/net/html/atom"
 )
 
-func New(node *html.Node) vdom.DOMNode {
-	return htmlDOM{node}
+func New(node *html.Node) DOM {
+	return DOM{node}
 }
 
-type htmlDOM struct{ node *html.Node }
+type DOM struct{ *html.Node }
 
 // Implement DOMNode
-func (dom htmlDOM) Replace(newNode vdom.DOMNode) {
-	node := newNode.(htmlDOM).node
-	dom.node.FirstChild = node.FirstChild
-	dom.node.LastChild = node.LastChild
-	dom.node.Type = node.Type
-	dom.node.DataAtom = node.DataAtom
-	dom.node.Data = node.Data
-	dom.node.Namespace = node.Namespace
-	dom.node.Attr = node.Attr
+func (dom DOM) Replace(newDOM vdom.DOMNode) vdom.DOMNode {
+	if dom.Node != nil && dom.Node.Parent != nil {
+		node := newDOM.(DOM).Node
+		dom.Node.Parent.InsertBefore(node, dom.Node)
+		dom.Node.Parent.RemoveChild(dom.Node)
+	}
+	return newDOM
 }
 
 // Implement DOMNode
-func (dom htmlDOM) CreateElement(name string) vdom.DOMNode {
-	return htmlDOM{&html.Node{
+func (dom DOM) CreateElement(name string) vdom.DOMNode {
+	return DOM{&html.Node{
 		Type:     html.ElementNode,
 		DataAtom: atom.Lookup([]byte(name)),
 		Data:     name,
@@ -34,64 +32,64 @@ func (dom htmlDOM) CreateElement(name string) vdom.DOMNode {
 }
 
 // Implement DOMNode
-func (dom htmlDOM) CreateText(text string) vdom.DOMNode {
-	return htmlDOM{&html.Node{
+func (dom DOM) CreateText(text string) vdom.DOMNode {
+	return DOM{&html.Node{
 		Type: html.TextNode,
 		Data: text,
 	}}
 }
 
 // Implement DOMNode
-func (dom htmlDOM) FirstChild() vdom.DOMNode {
-	return htmlDOM{dom.node.FirstChild}
+func (dom DOM) FirstChild() vdom.DOMNode {
+	return DOM{dom.Node.FirstChild}
 }
 
 // Implement DOMNode
-func (dom htmlDOM) NextSibling() vdom.DOMNode {
-	return htmlDOM{dom.node.NextSibling}
+func (dom DOM) NextSibling() vdom.DOMNode {
+	return DOM{dom.Node.NextSibling}
 }
 
 // Implement DOMNode
-func (dom htmlDOM) AppendChild(child vdom.DOMNode) {
-	node := child.(htmlDOM).node
-	dom.node.AppendChild(node)
+func (dom DOM) AppendChild(child vdom.DOMNode) {
+	node := child.(DOM).Node
+	dom.Node.AppendChild(node)
 }
 
 // Implement DOMNode
-func (dom htmlDOM) InsertBefore(newChild, oldChild vdom.DOMNode) {
-	newNode := newChild.(htmlDOM).node
-	oldNode := oldChild.(htmlDOM).node
-	dom.node.InsertBefore(newNode, oldNode)
+func (dom DOM) InsertBefore(newChild, oldChild vdom.DOMNode) {
+	newNode := newChild.(DOM).Node
+	oldNode := oldChild.(DOM).Node
+	dom.Node.InsertBefore(newNode, oldNode)
 }
 
 // Implement DOMNode
-func (dom htmlDOM) RemoveChild(child vdom.DOMNode) {
-	node := child.(htmlDOM).node
-	dom.node.RemoveChild(node)
+func (dom DOM) RemoveChild(child vdom.DOMNode) {
+	node := child.(DOM).Node
+	dom.Node.RemoveChild(node)
 }
 
 // Implement DOMNode
-func (dom htmlDOM) SetAttr(key, value string) {
-	for i, attr := range dom.node.Attr {
+func (dom DOM) SetAttr(key, value string) {
+	for i, attr := range dom.Node.Attr {
 		if attr.Key == key {
-			dom.node.Attr[i].Val = value
+			dom.Node.Attr[i].Val = value
 			return
 		}
 	}
-	dom.node.Attr = append(dom.node.Attr, html.Attribute{Key: key, Val: value})
+	dom.Node.Attr = append(dom.Node.Attr, html.Attribute{Key: key, Val: value})
 }
 
 // Implement DOMNode
-func (dom htmlDOM) DelAttr(key string) {
-	for i, attr := range dom.node.Attr {
+func (dom DOM) DelAttr(key string) {
+	for i, attr := range dom.Node.Attr {
 		if attr.Key == key {
-			dom.node.Attr = append(dom.node.Attr[:i], dom.node.Attr[i+1:]...)
+			dom.Node.Attr = append(dom.Node.Attr[:i], dom.Node.Attr[i+1:]...)
 			return
 		}
 	}
 }
 
 // Implement DOMNode
-func (dom htmlDOM) SetText(text string) {
-	dom.node.Data = text
+func (dom DOM) SetText(text string) {
+	dom.Node.Data = text
 }

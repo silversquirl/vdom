@@ -83,11 +83,10 @@ func TestClone(t *testing.T) {
 }
 
 func TestConstruct(t *testing.T) {
-	node := &html.Node{}
-	dom := htmldom.New(node)
+	dom := htmldom.New(&html.Node{})
 	expect := testTree()
 	dom.AppendChild(vdom.Construct(expect, dom))
-	checkNodes(t, "Generated node", expect, node.FirstChild)
+	checkNodes(t, "Generated node", expect, dom.Node.FirstChild)
 }
 
 func TestInvalidConstruct(t *testing.T) {
@@ -99,8 +98,7 @@ func TestInvalidConstruct(t *testing.T) {
 }
 
 func TestPatch(t *testing.T) {
-	node := &html.Node{}
-	dom := htmldom.New(node)
+	dom := htmldom.New(&html.Node{})
 	tree := testTree()
 	var prev *html.Node
 
@@ -109,40 +107,40 @@ func TestPatch(t *testing.T) {
 	p_0 := h1.NextSibling
 	p_1 := p_0.NextSibling
 
-	vdom.Patch(tree, prev, dom)
+	dom = vdom.Patch(dom, tree, prev).(htmldom.DOM)
 	prev = vdom.Clone(tree)
-	checkNodes(t, "[init] Patched node", tree, node)
+	checkNodes(t, "[init] Patched node", tree, dom.Node)
 
 	// Change some text
 	h1.FirstChild.Data = "Hi everyone!"
 
-	vdom.Patch(tree, prev, dom)
+	dom = vdom.Patch(dom, tree, prev).(htmldom.DOM)
 	prev = vdom.Clone(tree)
-	checkNodes(t, "[text] Patched node", tree, node)
+	checkNodes(t, "[text] Patched node", tree, dom.Node)
 
 	// Change some attributes
 	h1.Attr = append(h1.Attr, html.Attribute{Key: "class", Val: "title"})
 	body.Attr[0].Val = "ascii"
 	p_1.Attr = p_1.Attr[:0]
 
-	vdom.Patch(tree, prev, dom)
+	dom = vdom.Patch(dom, tree, prev).(htmldom.DOM)
 	prev = vdom.Clone(tree)
-	checkNodes(t, "[attr] Patched node", tree, node)
+	checkNodes(t, "[attr] Patched node", tree, dom.Node)
 
 	// Move some children around
 	text := p_0.FirstChild.NextSibling.NextSibling
 	p_0.RemoveChild(text)
 	p_1.AppendChild(text)
 
-	vdom.Patch(tree, prev, dom)
+	dom = vdom.Patch(dom, tree, prev).(htmldom.DOM)
 	prev = vdom.Clone(tree)
-	checkNodes(t, "[child] Patched node", tree, node)
+	checkNodes(t, "[child] Patched node", tree, dom.Node)
 
 	// Change an element's name
 	p_0.DataAtom = atom.Div
 	p_0.Data = "div"
 
-	vdom.Patch(tree, prev, dom)
+	dom = vdom.Patch(dom, tree, prev).(htmldom.DOM)
 	prev = vdom.Clone(tree)
-	checkNodes(t, "[name] Patched node", tree, node)
+	checkNodes(t, "[name] Patched node", tree, dom.Node)
 }

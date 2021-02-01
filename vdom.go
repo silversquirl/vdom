@@ -7,8 +7,8 @@ import (
 )
 
 type DOMNode interface {
-	// Replace the node with a new node.
-	Replace(newNode DOMNode)
+	// Replace the node with a new node, returning the new node.
+	Replace(newNode DOMNode) DOMNode
 	// Create a new Element node.
 	CreateElement(name string) DOMNode
 	// Create a new Text node.
@@ -111,10 +111,9 @@ func Construct(node *html.Node, dom DOMNode) DOMNode {
 	}
 }
 
-func Patch(node, oldNode *html.Node, dom DOMNode) {
+func Patch(dom DOMNode, node, oldNode *html.Node) DOMNode {
 	if oldNode == nil || node.Type != oldNode.Type {
-		dom.Replace(Construct(node, dom))
-		return
+		return dom.Replace(Construct(node, dom))
 	}
 
 	switch node.Type {
@@ -125,8 +124,7 @@ func Patch(node, oldNode *html.Node, dom DOMNode) {
 
 	case html.ElementNode:
 		if node.Data != oldNode.Data {
-			dom.Replace(Construct(node, dom))
-			return
+			return dom.Replace(Construct(node, dom))
 		}
 
 		// Update/add attributes
@@ -151,8 +149,7 @@ func Patch(node, oldNode *html.Node, dom DOMNode) {
 		oldChild := oldNode.FirstChild
 		domChild := dom.FirstChild()
 		for child != nil && oldChild != nil && domChild != nil {
-			Patch(child, oldChild, domChild)
-
+			domChild = Patch(domChild, child, oldChild)
 			child = child.NextSibling
 			oldChild = oldChild.NextSibling
 			domChild = domChild.NextSibling()
@@ -169,4 +166,6 @@ func Patch(node, oldNode *html.Node, dom DOMNode) {
 			child = child.NextSibling
 		}
 	}
+
+	return dom
 }
